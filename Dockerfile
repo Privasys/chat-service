@@ -15,6 +15,13 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
     -o /out/chat-service ./cmd/chat-service
 
 FROM postgres:16-bookworm
+# The postgres base ships no CA bundle, so the Go service's outbound HTTPS
+# (OIDC discovery/JWKS, management-service) would fail "unknown authority".
+# Install ca-certificates so it has a trust store.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates; \
+    rm -rf /var/lib/apt/lists/*
 COPY --from=build /out/chat-service /usr/local/bin/chat-service
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

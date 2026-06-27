@@ -12,6 +12,12 @@
 export PGDATA=/data/pgdata
 PGPORT=5432
 
+# Postgres needs its runtime socket dir; the base image's entrypoint (which we
+# override) normally creates it. Without it the server dies with
+# "could not create lock file /var/run/postgresql/.s.PGSQL.5432.lock".
+mkdir -p /var/run/postgresql 2>/dev/null || echo "entrypoint: mkdir /var/run/postgresql failed"
+chown postgres:postgres /var/run/postgresql 2>/dev/null || echo "entrypoint: chown /var/run/postgresql failed"
+
 mkdir -p "$PGDATA" 2>/dev/null || echo "entrypoint: mkdir $PGDATA failed"
 chown -R postgres:postgres "$PGDATA" 2>/dev/null || echo "entrypoint: chown $PGDATA failed"
 chmod 700 "$PGDATA" 2>/dev/null || true
