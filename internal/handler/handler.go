@@ -167,7 +167,13 @@ func (d Deps) addTool(w http.ResponseWriter, r *http.Request) {
 		app, err := d.Mgmt.ResolveEnclaveApp(r.Context(), req.Ref)
 		if err != nil || app == nil || !app.IsEnclave {
 			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
-				"error": "referenced app is not a verifiable Privasys enclave",
+				"error": "referenced app is not a deployed, verifiable Privasys enclave",
+			})
+			return
+		}
+		if !app.HasMCP {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+				"error": "referenced app does not expose an MCP tool interface",
 			})
 			return
 		}

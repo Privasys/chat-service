@@ -50,8 +50,8 @@ func Resolve(ctx context.Context, res appResolver, inst *mgmt.Instance, tools []
 		switch t.Kind {
 		case "enclave":
 			app, err := res.ResolveEnclaveApp(ctx, t.Ref)
-			if err != nil || app == nil || !app.IsEnclave {
-				continue // cannot prove enclave-ness → reject
+			if err != nil || app == nil || !app.IsEnclave || !app.HasMCP {
+				continue // cannot prove enclave-ness / MCP → reject
 			}
 			base := app.Endpoint
 			if base == "" && app.GatewayHost != "" {

@@ -47,6 +47,17 @@ type App struct {
 	HasMCP         bool   `json:"has_mcp"`
 }
 
+// appResolution mirrors management-service's public AppResolution
+// (GET /api/v1/apps/by-name/{name}/resolve): deployment coordinates plus
+// the attested image digest, which are public, verifiable facts.
+type appResolution struct {
+	Name        string `json:"name"`
+	Hostname    string `json:"hostname"`
+	ImageDigest string `json:"image_digest"`
+	IsEnclave   bool   `json:"is_enclave"`
+	HasMCP      bool   `json:"has_mcp"`
+}
+
 // GetInstance fetches a chat instance by id or alias (public endpoint).
 func (c *Client) GetInstance(ctx context.Context, idOrAlias string) (*Instance, error) {
 	var inst Instance
@@ -56,22 +67,30 @@ func (c *Client) GetInstance(ctx context.Context, idOrAlias string) (*Instance, 
 	return &inst, nil
 }
 
-// ResolveEnclaveApp looks up an app by id/alias and reports whether it is
-// an attestable enclave exposing MCP, plus the base_url + expected digest
+// ResolveEnclaveApp looks up a deployed app by name and reports whether it
+// is an attestable enclave exposing MCP, plus the base_url + expected digest
 // the grant needs. Used to admit user-added enclave tools.
 //
-// NOTE: depends on management-service exposing the resolved fields below on
-// GET /api/v1/apps/{idOrAlias}. Until that lands, a lookup that cannot
-// prove enclave-ness returns IsEnclave=false so enclave_only safely rejects.
-func (c *Client) ResolveEnclaveApp(ctx context.Context, idOrAlias string) (*App, error) {
-	var app App
-	if err := c.getJSON(ctx, "/api/v1/apps/"+url.PathEscape(idOrAlias), &app); err != nil {
+// It uses the public resolution endpoint (no auth): a deployed app's
+// hostname and attested image digest are public, verifiable facts. A name
+// that does not resolve to a deployed app yields IsEnclave=false so the
+// enclave_only policy safely rejects it.
+func (c *Client) ResolveEnclaveApp(ctx context.Context, name string) (*App, error) {
+	var r appResolution
+	if err := c.getJSON(ctx, "/api/v1/apps/by-name/"+url.PathEscape(name)+"/resolve", &r); err != nil {
 		return nil, err
 	}
-	if app.ID == "" {
-		app.ID = idOrAlias
+	app := &App{
+		ID:             name,
+		IsEnclave:      r.IsEnclave,
+		HasMCP:         r.HasMCP,
+		ExpectedDigest: r.ImageDigest,
 	}
-	return &app, nil
+	if r.Hostname != "" {
+		app.GatewayHost = r.Hostname
+		app.Endpoint = "https://" + r.Hostname
+	}
+	return app, nil
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, out any) error {

@@ -43,7 +43,7 @@ func TestAdmits(t *testing.T) {
 func TestResolve(t *testing.T) {
 	now := time.Now()
 	res := fakeResolver{apps: map[string]*mgmt.App{
-		"good-app": {ID: "good-app", IsEnclave: true, Endpoint: "https://good.apps.privasys.org", ExpectedDigest: "abc"},
+		"good-app": {ID: "good-app", IsEnclave: true, HasMCP: true, Endpoint: "https://good.apps.privasys.org", ExpectedDigest: "abc"},
 	}}
 	tools := []store.UserTool{
 		{Name: "good", Kind: "enclave", Ref: "good-app", Enabled: true},
