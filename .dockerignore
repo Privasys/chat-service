@@ -1,0 +1,8 @@
+.git
+.gitignore
+*.md
+.env
+.env.*
+*.pem
+/out
+/chat-service

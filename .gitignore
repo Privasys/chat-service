@@ -1,0 +1,6 @@
+/chat-service
+/out/
+*.exe
+*.pem
+.env
+.env.*

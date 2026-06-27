@@ -1,0 +1,5 @@
+{
+    "name": "chat-service",
+    "description": "Consumer back-end for chat.privasys.org. Owns per-user MCP tool state, fleet-governed tool resolution, and the signed tool-grant the chat front-end forwards to the confidential-ai enclave. PostgreSQL runs on the per-app sealed /data volume, so user state is encrypted at rest under a key only the app owner controls. This service is a REST API, not an MCP server, so it advertises no tools.",
+    "tools": []
+}
