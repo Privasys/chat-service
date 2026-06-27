@@ -14,19 +14,20 @@ chmod 700 "$PGDATA"
 
 if [ ! -s "$PGDATA/PG_VERSION" ]; then
   echo "initialising PostgreSQL on the sealed /data volume…"
-  su postgres -c "initdb -D '$PGDATA' --auth-local=trust --auth-host=reject >/dev/null"
+  # Trust loopback only: Postgres binds 127.0.0.1 (never the host/network), so
+  # trusting local TCP + socket is safe and needs no DB password.
+  su postgres -c "initdb -D '$PGDATA' --auth-local=trust --auth-host=trust >/dev/null"
 fi
 
-# Postgres listens on localhost only — reachable only from inside this enclave
-# container, never exposed to the host or the network. The service connects over
-# the local unix socket (auth-local=trust), so no DB password is needed.
+# Postgres listens on loopback only — reachable solely from inside this enclave
+# container.
 su postgres -c "pg_ctl -D '$PGDATA' -o '-c listen_addresses=127.0.0.1 -p $PGPORT' -w start"
 
 if ! su postgres -c "psql -p $PGPORT -tAc \"SELECT 1 FROM pg_database WHERE datname='chat'\"" | grep -q 1; then
   su postgres -c "psql -p $PGPORT -c 'CREATE DATABASE chat'"
 fi
 
-export DATABASE_URL="${DATABASE_URL:-postgres://postgres@/chat?host=/var/run/postgresql&sslmode=disable}"
+export DATABASE_URL="${DATABASE_URL:-postgres://postgres@127.0.0.1:5432/chat?sslmode=disable}"
 
 echo "starting chat-service on \$PORT=${PORT:-8080}…"
 exec chat-service

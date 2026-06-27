@@ -45,7 +45,7 @@ type Config struct {
 func Load() (*Config, error) {
 	c := &Config{
 		Addr:        ":" + getenv("PORT", "8080"),
-		DatabaseURL: getenv("DATABASE_URL", "postgres:///chat?host=/var/run/postgresql"),
+		DatabaseURL: getenv("DATABASE_URL", "postgres://postgres@127.0.0.1:5432/chat?sslmode=disable"),
 		// The Privasys IdP is shared across environments, so it is a safe
 		// default — container apps receive no env, and a required-but-unset
 		// issuer would stop the app booting. Override via OIDC_ISSUER.

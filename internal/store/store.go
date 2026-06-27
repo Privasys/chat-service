@@ -50,13 +50,36 @@ type Store struct {
 	pool *pgxpool.Pool
 }
 
-// New opens a pgx pool and applies the schema.
+// New opens a pgx pool and applies the schema. It waits for Postgres to
+// accept connections (it is started in the same container moments earlier),
+// so a slow first-boot warmup doesn't crash the service.
 func New(ctx context.Context, dsn string) (*Store, error) {
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open pool: %w", err)
 	}
 	s := &Store{pool: pool}
+
+	var lastErr error
+	for i := 0; i < 30; i++ {
+		if err := pool.Ping(ctx); err == nil {
+			lastErr = nil
+			break
+		} else {
+			lastErr = err
+		}
+		select {
+		case <-ctx.Done():
+			pool.Close()
+			return nil, ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+	if lastErr != nil {
+		pool.Close()
+		return nil, fmt.Errorf("postgres not reachable: %w", lastErr)
+	}
+
 	if err := s.migrate(ctx); err != nil {
 		pool.Close()
 		return nil, err
