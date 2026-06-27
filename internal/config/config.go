@@ -44,9 +44,12 @@ type Config struct {
 
 func Load() (*Config, error) {
 	c := &Config{
-		Addr:         ":" + getenv("PORT", "8080"),
-		DatabaseURL:  getenv("DATABASE_URL", "postgres:///chat?host=/var/run/postgresql"),
-		OIDCIssuer:   os.Getenv("OIDC_ISSUER"),
+		Addr:        ":" + getenv("PORT", "8080"),
+		DatabaseURL: getenv("DATABASE_URL", "postgres:///chat?host=/var/run/postgresql"),
+		// The Privasys IdP is shared across environments, so it is a safe
+		// default — container apps receive no env, and a required-but-unset
+		// issuer would stop the app booting. Override via OIDC_ISSUER.
+		OIDCIssuer:   getenv("OIDC_ISSUER", "https://privasys.id"),
 		OIDCAudience: os.Getenv("OIDC_AUDIENCE"),
 		MgmtBaseURL:  strings.TrimRight(getenv("MGMT_BASE_URL", "https://api.developer.privasys.org"), "/"),
 		GrantIssuer:  getenv("GRANT_ISSUER", "https://api.chat.privasys.org"),
