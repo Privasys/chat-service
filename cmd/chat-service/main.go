@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -30,12 +31,8 @@ func main() {
 
 	ctx := context.Background()
 
-	st, err := store.New(ctx, cfg.DatabaseURL)
-	if err != nil {
-		log.Fatalf("store: %v", err)
-	}
-	defer st.Close()
-
+	// The grant signer has no external dependency; a failure here is a real
+	// misconfiguration, so it stays fatal.
 	signer, ephemeral, err := grant.NewSigner(cfg.GrantKeyPEM, cfg.GrantKeyFile, cfg.GrantKID, cfg.GrantIssuer, cfg.GrantTTL)
 	if err != nil {
 		log.Fatalf("grant signer: %v", err)
@@ -44,18 +41,36 @@ func main() {
 		log.Printf("WARNING: no GRANT_KEY_PEM/FILE set — using an ephemeral grant key; JWKS rotates on restart")
 	}
 
+	// Store + auth depend on the local Postgres and the IdP. If either is not
+	// ready we still start (serving /health so the platform routes us, and
+	// /healthz reporting the degraded subsystem) instead of crash-looping.
+	var startupErrs []string
+
+	st, err := store.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		log.Printf("WARNING: store init failed (degraded): %v", err)
+		startupErrs = append(startupErrs, "store: "+err.Error())
+		st = nil
+	} else {
+		defer st.Close()
+	}
+
 	authn, err := auth.New(cfg.OIDCIssuer, cfg.OIDCAudience)
 	if err != nil {
-		log.Fatalf("auth: %v", err)
+		log.Printf("WARNING: auth init failed (degraded): %v", err)
+		startupErrs = append(startupErrs, "auth: "+err.Error())
+		authn = nil
+	} else {
+		defer authn.Close()
 	}
-	defer authn.Close()
 
 	h := handler.Router(handler.Deps{
-		Store:  st,
-		Mgmt:   mgmt.New(cfg.MgmtBaseURL),
-		Signer: signer,
-		Auth:   authn,
-		CORS:   cfg.CORSOrigins,
+		Store:      st,
+		Mgmt:       mgmt.New(cfg.MgmtBaseURL),
+		Signer:     signer,
+		Auth:       authn,
+		CORS:       cfg.CORSOrigins,
+		StartupErr: strings.Join(startupErrs, "; "),
 	})
 
 	srv := &http.Server{

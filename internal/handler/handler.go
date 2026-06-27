@@ -27,13 +27,16 @@ import (
 
 var nameRe = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
 
-// Deps are the collaborators the handlers need.
+// Deps are the collaborators the handlers need. Store and Auth may be nil
+// when their init failed at startup — the service still serves /health (so
+// the platform routes it) and /healthz reports the degraded subsystem.
 type Deps struct {
-	Store  *store.Store
-	Mgmt   *mgmt.Client
-	Signer *grant.Signer
-	Auth   *auth.Auth
-	CORS   []string
+	Store      *store.Store
+	Mgmt       *mgmt.Client
+	Signer     *grant.Signer
+	Auth       *auth.Auth
+	CORS       []string
+	StartupErr string
 }
 
 // Router builds the chi router.
@@ -57,7 +60,19 @@ func Router(d Deps) http.Handler {
 	r.Get("/.well-known/jwks.json", d.jwks)
 
 	r.Group(func(r chi.Router) {
-		r.Use(d.Auth.Middleware)
+		// When auth or the store failed to initialise, the authed routes
+		// answer 503 rather than panic on a nil dependency.
+		if d.Auth == nil || d.Store == nil {
+			r.Use(func(http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+						"error": "service is starting or degraded; see /healthz",
+					})
+				})
+			})
+		} else {
+			r.Use(d.Auth.Middleware)
+		}
 		r.Get("/api/v1/me/tools", d.listTools)
 		r.Post("/api/v1/me/tools", d.addTool)
 		r.Patch("/api/v1/me/tools/{id}", d.patchTool)
@@ -67,15 +82,36 @@ func Router(d Deps) http.Handler {
 	return r
 }
 
+// health is the platform readiness probe: liveness only (process is up),
+// independent of the DB so the gateway starts routing immediately.
 func (d Deps) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "healthy"})
 }
 
+// healthz is the deep check: it reports every degraded subsystem so the
+// failure is visible without container-stdout access.
 func (d Deps) healthz(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-	defer cancel()
-	if err := d.Store.Ping(ctx); err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "db_unavailable"})
+	var problems []string
+	if d.StartupErr != "" {
+		problems = append(problems, "startup: "+d.StartupErr)
+	}
+	if d.Store == nil {
+		problems = append(problems, "db: not connected")
+	} else {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := d.Store.Ping(ctx); err != nil {
+			problems = append(problems, "db: "+err.Error())
+		}
+	}
+	if d.Auth == nil {
+		problems = append(problems, "auth: not initialised")
+	}
+	if len(problems) > 0 {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"status":   "degraded",
+			"problems": problems,
+		})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
