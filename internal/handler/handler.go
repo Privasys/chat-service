@@ -48,6 +48,11 @@ func Router(d Deps) http.Handler {
 		MaxAge:           300,
 	}))
 
+	// /health is the platform readiness probe the manager hits on
+	// localhost:$PORT — a lightweight liveness check (process up), kept
+	// independent of the DB so the gateway starts routing as soon as the
+	// service is listening. /healthz is the deeper DB-aware check.
+	r.Get("/health", d.health)
 	r.Get("/healthz", d.healthz)
 	r.Get("/.well-known/jwks.json", d.jwks)
 
@@ -60,6 +65,10 @@ func Router(d Deps) http.Handler {
 		r.Post("/api/v1/instances/{id}/tool-grant", d.toolGrant)
 	})
 	return r
+}
+
+func (d Deps) health(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "healthy"})
 }
 
 func (d Deps) healthz(w http.ResponseWriter, r *http.Request) {
