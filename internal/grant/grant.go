@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -52,32 +53,68 @@ type Signer struct {
 	ttl    time.Duration
 }
 
-// NewSigner loads an EC P-256 key from PEM (inline or file). When both are
-// empty it generates an ephemeral key — fine for `go run`, but a restart
-// rotates the JWKS, so production must supply GRANT_KEY_PEM/FILE.
+// NewSigner obtains the EC P-256 signing key, in priority order:
+//
+//   1. pemInline (GRANT_KEY_PEM) — explicit override.
+//   2. pemFile (GRANT_KEY_FILE) — load if present; otherwise generate once and
+//      SEAL it there. With the default path on the per-app /data volume this
+//      gives a stable key (and therefore a stable JWKS) across restarts,
+//      generated in-enclave and never transmitted.
+//   3. neither — ephemeral key (fine for `go run`; JWKS rotates per restart).
+//
+// The bool return is true only for an ephemeral (non-persistent) key.
 func NewSigner(pemInline, pemFile, kid, issuer string, ttl time.Duration) (*Signer, bool, error) {
-	var keyPEM []byte
-	switch {
-	case pemInline != "":
-		keyPEM = []byte(pemInline)
-	case pemFile != "":
-		b, err := os.ReadFile(pemFile)
-		if err != nil {
-			return nil, false, fmt.Errorf("read grant key file: %w", err)
-		}
-		keyPEM = b
-	default:
-		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if pemInline != "" {
+		key, err := parseECPrivateKey([]byte(pemInline))
 		if err != nil {
 			return nil, false, err
 		}
-		return &Signer{key: key, kid: kid, issuer: issuer, ttl: ttl}, true, nil
+		return &Signer{key: key, kid: kid, issuer: issuer, ttl: ttl}, false, nil
 	}
-	key, err := parseECPrivateKey(keyPEM)
+
+	if pemFile != "" {
+		b, err := os.ReadFile(pemFile)
+		if err == nil {
+			key, perr := parseECPrivateKey(b)
+			if perr != nil {
+				return nil, false, perr
+			}
+			return &Signer{key: key, kid: kid, issuer: issuer, ttl: ttl}, false, nil
+		}
+		if !os.IsNotExist(err) {
+			return nil, false, fmt.Errorf("read grant key file: %w", err)
+		}
+		// Missing: generate once and seal to pemFile.
+		key, gerr := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if gerr != nil {
+			return nil, false, gerr
+		}
+		if werr := writeECPrivateKey(pemFile, key); werr != nil {
+			// Can't persist (e.g. /data unavailable) — serve ephemerally.
+			return &Signer{key: key, kid: kid, issuer: issuer, ttl: ttl}, true, nil
+		}
+		return &Signer{key: key, kid: kid, issuer: issuer, ttl: ttl}, false, nil
+	}
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, false, err
 	}
-	return &Signer{key: key, kid: kid, issuer: issuer, ttl: ttl}, false, nil
+	return &Signer{key: key, kid: kid, issuer: issuer, ttl: ttl}, true, nil
+}
+
+// writeECPrivateKey seals an EC private key to path as a 0600 PEM, creating
+// the parent directory.
+func writeECPrivateKey(path string, key *ecdsa.PrivateKey) error {
+	der, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return err
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, pemBytes, 0o600)
 }
 
 // Sign returns a compact JWS grant bound to audience (the enclave/instance)

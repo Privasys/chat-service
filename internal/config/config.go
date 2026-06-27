@@ -34,12 +34,18 @@ type Config struct {
 	// Grant* configure the signed tool-grant minted for the enclave.
 	GrantIssuer  string        // iss claim (this service's identity)
 	GrantTTL     time.Duration // grant lifetime (short)
-	GrantKeyPEM  string        // EC P-256 private key (PEM). Empty → ephemeral.
-	GrantKeyFile string        // path to the PEM, used when GrantKeyPEM is empty
+	GrantKeyPEM  string        // EC P-256 private key (PEM). Empty → use GrantKeyFile.
+	GrantKeyFile string        // PEM path; generated + sealed here on first boot.
 	GrantKID     string        // key id advertised in JWKS + grant header
 
 	// CORSOrigins is the allowed browser origin list for the chat front-end.
 	CORSOrigins []string
+
+	// ConfigFile is where POST /configure persists runtime-delivered config
+	// (on the sealed /data volume) so it survives restarts. Container apps get
+	// no env injection beyond $PORT, so env-specific values like MgmtBaseURL
+	// arrive via configure-then-freeze.
+	ConfigFile string
 }
 
 func Load() (*Config, error) {
@@ -55,9 +61,10 @@ func Load() (*Config, error) {
 		GrantIssuer:  getenv("GRANT_ISSUER", "https://api.chat.privasys.org"),
 		GrantTTL:     getdur("GRANT_TTL", 5*time.Minute),
 		GrantKeyPEM:  os.Getenv("GRANT_KEY_PEM"),
-		GrantKeyFile: os.Getenv("GRANT_KEY_FILE"),
+		GrantKeyFile: getenv("GRANT_KEY_FILE", "/data/grant-key.pem"),
 		GrantKID:     getenv("GRANT_KID", "chat-grant-1"),
-		CORSOrigins:  splitList(getenv("CORS_ORIGINS", "https://chat.privasys.org")),
+		CORSOrigins:  splitList(getenv("CORS_ORIGINS", "https://chat.privasys.org,https://chat-test.privasys.org")),
+		ConfigFile:   getenv("CONFIG_FILE", "/data/chat-config.json"),
 	}
 	if c.OIDCIssuer == "" {
 		return nil, fmt.Errorf("OIDC_ISSUER is required")

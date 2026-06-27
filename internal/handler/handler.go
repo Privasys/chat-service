@@ -37,6 +37,8 @@ type Deps struct {
 	Auth       *auth.Auth
 	CORS       []string
 	StartupErr string
+	// ConfigFile is the sealed-/data path POST /configure persists to.
+	ConfigFile string
 }
 
 // Router builds the chi router.
@@ -59,17 +61,23 @@ func Router(d Deps) http.Handler {
 	r.Get("/healthz", d.healthz)
 	r.Get("/.well-known/jwks.json", d.jwks)
 
+	// /configure needs auth (not the store): it delivers env-specific runtime
+	// config (the management-service base URL) that container apps can't get
+	// from env. Reached via the owner-gated management-service RPC relay.
+	r.Group(func(r chi.Router) {
+		if d.Auth == nil {
+			r.Use(unavailableMiddleware("auth not initialised; see /healthz"))
+		} else {
+			r.Use(d.Auth.Middleware)
+		}
+		r.Post("/configure", d.configure)
+	})
+
 	r.Group(func(r chi.Router) {
 		// When auth or the store failed to initialise, the authed routes
 		// answer 503 rather than panic on a nil dependency.
 		if d.Auth == nil || d.Store == nil {
-			r.Use(func(http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-					writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-						"error": "service is starting or degraded; see /healthz",
-					})
-				})
-			})
+			r.Use(unavailableMiddleware("service is starting or degraded; see /healthz"))
 		} else {
 			r.Use(d.Auth.Middleware)
 		}
@@ -80,6 +88,15 @@ func Router(d Deps) http.Handler {
 		r.Post("/api/v1/instances/{id}/tool-grant", d.toolGrant)
 	})
 	return r
+}
+
+// unavailableMiddleware short-circuits a route group with 503 + msg.
+func unavailableMiddleware(msg string) func(http.Handler) http.Handler {
+	return func(http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": msg})
+		})
+	}
 }
 
 // health is the platform readiness probe: liveness only (process is up),

@@ -33,8 +33,10 @@ discovery and to validate that a user-added enclave tool is a real Privasys app.
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/healthz` | none | liveness + DB ping |
+| `GET` | `/health` | none | liveness (platform readiness probe) |
+| `GET` | `/healthz` | none | deep check: reports any degraded subsystem |
 | `GET` | `/.well-known/jwks.json` | none | grant-signing public keys |
+| `POST` | `/configure` | user | deliver runtime config (e.g. `mgmt_base_url`) |
 | `GET` | `/api/v1/me/tools` | user | list the caller's tools |
 | `POST` | `/api/v1/me/tools` | user | add a tool (enclave or external) |
 | `PATCH` | `/api/v1/me/tools/{id}` | user | enable/disable |
@@ -49,15 +51,22 @@ JWKS (same scheme as management-service).
 | Env | Default | Notes |
 | --- | --- | --- |
 | `PORT` | `8080` | listen port (`/healthz` probed here) |
-| `DATABASE_URL` | local socket | set by the entrypoint to the on-`/data` Postgres |
-| `OIDC_ISSUER` | — | **required**; comma-separated for multi-issuer |
+| `DATABASE_URL` | local TCP | set by the entrypoint to the on-`/data` Postgres |
+| `OIDC_ISSUER` | `https://privasys.id` | the shared Privasys IdP |
 | `OIDC_AUDIENCE` | — | comma-separated; optional |
-| `MGMT_BASE_URL` | `https://api.developer.privasys.org` | control-plane base |
-| `GRANT_KEY_PEM` / `GRANT_KEY_FILE` | — | EC P-256 private key; ephemeral if unset |
+| `MGMT_BASE_URL` | `https://api.developer.privasys.org` | control-plane base; override per-env via `/configure` |
+| `GRANT_KEY_PEM` | — | EC P-256 private key (PEM) override |
+| `GRANT_KEY_FILE` | `/data/grant-key.pem` | key path; generated + sealed here on first boot (stable JWKS) |
 | `GRANT_KID` | `chat-grant-1` | key id in JWKS + grant header |
 | `GRANT_TTL` | `5m` | grant lifetime |
 | `GRANT_ISSUER` | `https://api.chat.privasys.org` | grant `iss` |
-| `CORS_ORIGINS` | `https://chat.privasys.org` | allowed browser origins |
+| `CORS_ORIGINS` | chat.privasys.org, chat-test.privasys.org | allowed browser origins |
+| `CONFIG_FILE` | `/data/chat-config.json` | where `/configure` persists runtime config |
+
+As a container app it receives no env beyond `$PORT`: the grant key is generated
+once and sealed to `/data`, and environment-specific values (`mgmt_base_url`)
+arrive via `POST /configure` (persisted to `/data`, reloaded on restart) — the
+configure-then-freeze pattern.
 
 ## Build & run
 
@@ -69,8 +78,10 @@ go test ./...
 docker build -t chat-service .
 ```
 
-The grant key must be supplied in production (`GRANT_KEY_PEM`/`GRANT_KEY_FILE`);
-an unset key is generated ephemerally and the JWKS rotates on restart.
+The grant key is generated once and sealed to `GRANT_KEY_FILE` on the per-app
+`/data` volume, so the JWKS is stable across restarts. Set `GRANT_KEY_PEM` only
+to supply a specific key. With no `/data` volume (e.g. local `go run`) the key
+is ephemeral and the JWKS rotates per restart.
 
 ## Status
 

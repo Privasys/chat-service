@@ -64,13 +64,25 @@ func main() {
 		defer authn.Close()
 	}
 
+	// Apply any config previously delivered via POST /configure (sealed to
+	// /data) over the env defaults — notably the management-service base URL,
+	// which container apps can't receive from env.
+	mgmtBase := cfg.MgmtBaseURL
+	if pc, err := handler.LoadPersistedConfig(cfg.ConfigFile); err != nil {
+		log.Printf("WARNING: could not read persisted config: %v", err)
+	} else if pc.MgmtBaseURL != "" {
+		mgmtBase = pc.MgmtBaseURL
+		log.Printf("applied persisted mgmt_base_url=%s", mgmtBase)
+	}
+
 	h := handler.Router(handler.Deps{
 		Store:      st,
-		Mgmt:       mgmt.New(cfg.MgmtBaseURL),
+		Mgmt:       mgmt.New(mgmtBase),
 		Signer:     signer,
 		Auth:       authn,
 		CORS:       cfg.CORSOrigins,
 		StartupErr: strings.Join(startupErrs, "; "),
+		ConfigFile: cfg.ConfigFile,
 	})
 
 	srv := &http.Server{

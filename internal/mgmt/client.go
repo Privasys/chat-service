@@ -11,10 +11,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
 type Client struct {
+	mu   sync.RWMutex
 	base string
 	http *http.Client
 }
@@ -24,6 +26,20 @@ func New(baseURL string) *Client {
 		base: strings.TrimRight(baseURL, "/"),
 		http: &http.Client{Timeout: 8 * time.Second},
 	}
+}
+
+// SetBase swaps the control-plane base URL at runtime (POST /configure).
+func (c *Client) SetBase(baseURL string) {
+	c.mu.Lock()
+	c.base = strings.TrimRight(baseURL, "/")
+	c.mu.Unlock()
+}
+
+// Base returns the current control-plane base URL.
+func (c *Client) Base() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.base
 }
 
 // Instance mirrors the relevant fields of
@@ -94,7 +110,7 @@ func (c *Client) ResolveEnclaveApp(ctx context.Context, name string) (*App, erro
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Base()+path, nil)
 	if err != nil {
 		return err
 	}
