@@ -74,7 +74,12 @@ jobs:
           [ "$GITHUB_REF" = "${GITHUB_REF#refs/tags/}" ] && REF="main-$(git rev-parse --short HEAD)"
           echo "tag=$REF" >> "$GITHUB_OUTPUT"
 
+      # Push only on a tag: pushing to the org package needs write that the
+      # default GITHUB_TOKEN lacks (org-package permission / a PACKAGES_PAT).
+      # On main, the smoke gate above still runs (and fails the build if the
+      # container contract is broken).
       - name: Build and push
+        if: startsWith(github.ref, 'refs/tags/')
         uses: docker/build-push-action@v6
         with:
           context: .
