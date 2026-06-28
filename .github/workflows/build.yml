@@ -1,0 +1,86 @@
+# Copyright (c) Privasys. All rights reserved.
+# Licensed under the GNU Affero General Public License v3.0.
+#
+# Build + $PORT smoke-gate + push the chat-service image. The platform also
+# builds reproducibly from the commit; this gate guarantees the container
+# contract so a broken image never ships: the service MUST listen on the
+# injected $PORT and serve /health (degraded is fine — Postgres comes up on a
+# fresh /data volume). Pushes ghcr.io/privasys/apps/e2e-chat-service:<tag> and
+# :<tag>-<sha>.
+
+name: Build & Push chat-service
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/privasys/apps/e2e-chat-service
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build-contract gate: the platform injects a unique $PORT and probes
+      # localhost:$PORT/health. An image that ignores $PORT (or never listens)
+      # fails its health probe, gets no gateway route, and can never attest.
+      # Build + run with an injected PORT + a fresh /data volume and require
+      # /health there, so such an image can never ship.
+      - name: Smoke test — must listen on injected $PORT
+        run: |
+          set -euo pipefail
+          docker build -t chat-smoke .
+          PORT=18085
+          docker volume create chat-smoke-data >/dev/null
+          docker run -d --name chat-smoke -e PORT=$PORT -p $PORT:$PORT \
+            -v chat-smoke-data:/data chat-smoke
+          ok=0
+          for _ in $(seq 1 60); do
+            if curl -fs "http://localhost:$PORT/health" >/dev/null 2>&1; then ok=1; break; fi
+            sleep 1
+          done
+          echo "--- container logs ---"; docker logs chat-smoke || true
+          docker rm -f chat-smoke >/dev/null 2>&1 || true
+          docker volume rm chat-smoke-data >/dev/null 2>&1 || true
+          if [ "$ok" != "1" ]; then
+            echo "::error::Image did not serve /health on the injected PORT=$PORT. The service MUST listen on \$PORT (the host-net port the platform assigns)."
+            exit 1
+          fi
+          echo "✓ listens on injected \$PORT=$PORT and serves /health"
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          REF="${GITHUB_REF#refs/tags/}"
+          [ "$GITHUB_REF" = "${GITHUB_REF#refs/tags/}" ] && REF="main-$(git rev-parse --short HEAD)"
+          echo "tag=$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          provenance: false
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+            ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}-${{ github.sha }}
