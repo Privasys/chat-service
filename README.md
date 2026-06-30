@@ -50,7 +50,7 @@ JWKS (same scheme as management-service).
 
 | Env | Default | Notes |
 | --- | --- | --- |
-| `PORT` | `8080` | listen port (`/healthz` probed here) |
+| `PORT` | _(required)_ | listen port (`/healthz` probed here); the platform injects it, there is no fallback |
 | `DATABASE_URL` | local TCP | set by the entrypoint to the on-`/data` Postgres |
 | `OIDC_ISSUER` | `https://privasys.id` | the shared Privasys IdP |
 | `OIDC_AUDIENCE` | — | comma-separated; optional |

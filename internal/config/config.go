@@ -12,8 +12,8 @@ import (
 )
 
 type Config struct {
-	// Addr is the listen address (":8080" by default — the container
-	// app convention is to serve on $PORT).
+	// Addr is the listen address. The container app binds the platform-injected
+	// $PORT; it is required (no hard-coded fallback port).
 	Addr string
 
 	// DatabaseURL is the Postgres DSN. In the container app Postgres runs
@@ -49,8 +49,12 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
+	port := strings.TrimSpace(os.Getenv("PORT"))
+	if port == "" {
+		return nil, fmt.Errorf("PORT is required")
+	}
 	c := &Config{
-		Addr:        ":" + getenv("PORT", "8080"),
+		Addr:        ":" + port,
 		DatabaseURL: getenv("DATABASE_URL", "postgres://postgres@127.0.0.1:5432/chat?sslmode=disable"),
 		// The Privasys IdP is shared across environments, so it is a safe
 		// default — container apps receive no env, and a required-but-unset

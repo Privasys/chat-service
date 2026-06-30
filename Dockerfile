@@ -27,9 +27,8 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # The platform runs containers on the host network and injects a unique $PORT;
-# the service MUST listen on it (the manager's health probe hits
-# localhost:$PORT/healthz). 8080 is only a default for local runs.
-ENV PORT=8080
-EXPOSE 8080
+# the service binds it (the manager's health probe hits localhost:$PORT/healthz).
+# No fixed PORT is baked and no port is EXPOSEd — $PORT is required at runtime
+# (host networking makes EXPOSE a no-op anyway).
 
 ENTRYPOINT ["/entrypoint.sh"]

@@ -39,5 +39,6 @@ fi
 
 export DATABASE_URL="${DATABASE_URL:-postgres://postgres@127.0.0.1:5432/chat?sslmode=disable}"
 
-echo "entrypoint: starting chat-service on \$PORT=${PORT:-8080}…"
+: "${PORT:?PORT environment variable is required}"
+echo "entrypoint: starting chat-service on :$PORT…"
 exec chat-service
