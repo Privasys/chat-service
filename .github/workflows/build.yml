@@ -78,6 +78,18 @@ jobs:
           [ "$GITHUB_REF" = "${GITHUB_REF#refs/tags/}" ] && REF="main-$(git rev-parse --short HEAD)"
           echo "tag=$REF" >> "$GITHUB_OUTPUT"
 
+      # Embed privasys.json (the app manifest: configure section + store block) as
+      # an OCI label so the management-service can auto-detect it from the image
+      # (FetchOCILabel "org.privasys.manifest") for a package-source deploy.
+      # base64-encoded so the store keywords/description commas survive the
+      # build step's CSV-style label parsing; the management-service decodes it.
+      - name: Read privasys.json
+        id: manifest
+        run: |
+          if [ -f privasys.json ]; then
+            echo "json=$(jq -c . privasys.json | base64 -w0)" >> "$GITHUB_OUTPUT"
+          fi
+
       # Push only on a tag: pushing to the org package needs write that the
       # default GITHUB_TOKEN lacks (org-package permission / a PACKAGES_PAT).
       # On main, the smoke gate above still runs (and fails the build if the
@@ -90,6 +102,8 @@ jobs:
           push: true
           platforms: linux/amd64
           provenance: false
+          labels: |
+            org.privasys.manifest=${{ steps.manifest.outputs.json }}
           tags: |
             ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
             ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}-${{ github.sha }}

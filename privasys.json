@@ -1,5 +1,37 @@
 {
     "name": "chat-service",
     "description": "Consumer back-end for chat.privasys.org. Owns per-user MCP tool state, fleet-governed tool resolution, and the signed tool-grant the chat front-end forwards to the confidential-ai enclave. PostgreSQL runs on the per-app sealed /data volume, so user state is encrypted at rest under a key only the app owner controls. This service is a REST API, not an MCP server, so it advertises no tools.",
-    "tools": []
+    "tools": [],
+    "configure": {
+        "endpoint": "/configure",
+        "name": "configure",
+        "optional": true,
+        "title": "Management service",
+        "description": "Point this back-end at the management-service control plane for its environment. It reads the fleet tool policy and validates enclave apps from there. It defaults to production, so this is only needed on dev/test.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "mgmt_base_url": {
+                    "type": "string",
+                    "description": "Management-service base URL for this environment.",
+                    "x-privasys": {
+                        "label": "Management-service base URL",
+                        "placeholder": "https://api-test.developer.privasys.org",
+                        "details": "chat-service reads the fleet tool_policy and validates enclave apps from this control plane. Leave unset to use the production default (https://api.developer.privasys.org); set the dev/test URL for those environments. Persisted to the sealed /data volume, so it survives restarts."
+                    }
+                }
+            },
+            "required": ["mgmt_base_url"]
+        }
+    },
+    "store": {
+        "tagline": "Consumer back-end for chat.privasys.org: per-user tools, fleet-governed tool resolution, and signed tool-grants.",
+        "category": "Developer Tools",
+        "keywords": "chat, mcp, tools, tool grant, jwks, backend, confidential computing, attested, enclave, postgres",
+        "website_url": "https://privasys.org",
+        "support_email": "contact@privasys.org",
+        "privacy_url": "https://privasys.org/legal/privacy/",
+        "tos_url": "https://privasys.org/legal/terms/",
+        "description": "chat-service is the consumer back-end behind chat.privasys.org. It owns each user's MCP tool list, resolves which tools a fleet permits, and mints the short-lived, signed tool-grant that the chat front-end forwards to the confidential-AI enclave.\n\nAll user state lives in PostgreSQL on the per-app sealed /data volume, encrypted at rest under a key only the app owner controls: the host, the operator, and Privasys never see the plaintext. The grant-signing key is generated and sealed on that same volume, so the published JWKS is stable across restarts and owner-approved upgrades, and the enclave can verify every grant against source-built, attested code.\n\nThis is a REST API, not an MCP server, so it advertises no tools of its own."
+    }
 }
