@@ -61,6 +61,10 @@ type App struct {
 	Endpoint       string `json:"endpoint"`
 	ExpectedDigest string `json:"expected_digest"`
 	HasMCP         bool   `json:"has_mcp"`
+	// AppType ("wasm" | "container") selects the MCP transport the agent
+	// must use: wasm hosts speak the privasys_http shim, containers the
+	// standard MCP SSE transport.
+	AppType string `json:"app_type"`
 }
 
 // appResolution mirrors management-service's public AppResolution
@@ -68,6 +72,7 @@ type App struct {
 // the attested image digest, which are public, verifiable facts.
 type appResolution struct {
 	Name        string `json:"name"`
+	AppType     string `json:"app_type"`
 	Hostname    string `json:"hostname"`
 	ImageDigest string `json:"image_digest"`
 	IsEnclave   bool   `json:"is_enclave"`
@@ -101,6 +106,7 @@ func (c *Client) ResolveEnclaveApp(ctx context.Context, name string) (*App, erro
 		IsEnclave:      r.IsEnclave,
 		HasMCP:         r.HasMCP,
 		ExpectedDigest: r.ImageDigest,
+		AppType:        r.AppType,
 	}
 	if r.Hostname != "" {
 		app.GatewayHost = r.Hostname

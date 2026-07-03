@@ -240,6 +240,18 @@ func (d Deps) addTool(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		t.ExpectedDigest = app.ExpectedDigest
+		// The MCP transport is a property of the HOSTING runtime, not a
+		// caller choice: wasm hosts speak the privasys_http shim
+		// (GET/POST /api/v1/mcp/tools...), containers standard MCP SSE.
+		// Defaulting everything to mcp_sse left wasm tools timing out on
+		// an SSE handshake the host never answers.
+		if req.Transport == "" {
+			if app.AppType == "wasm" {
+				t.Transport = "privasys_http"
+			} else {
+				t.Transport = "mcp_sse"
+			}
+		}
 	case "external":
 		if !req.Acknowledged {
 			writeJSON(w, http.StatusBadRequest, map[string]string{
