@@ -62,6 +62,16 @@ func main() {
 		authn = nil
 	} else {
 		defer authn.Close()
+		// Inside an enclave the ONLY ingress is the session-relay
+		// middleware, which strips inbound X-Privasys-Sub and asserts it
+		// exclusively for wallet-vouched sealed sessions — so the header
+		// is a trustworthy identity here and the browser bearer never has
+		// to cross the gateway leg at all. TRUST_RELAY_SUB=false opts out
+		// (e.g. when running outside an enclave in development).
+		if strings.TrimSpace(strings.ToLower(os.Getenv("TRUST_RELAY_SUB"))) != "false" {
+			authn.SetTrustRelaySub(true)
+			log.Printf("relay-injected identity enabled (X-Privasys-Sub)")
+		}
 	}
 
 	// Apply any config previously delivered via POST /configure (sealed to

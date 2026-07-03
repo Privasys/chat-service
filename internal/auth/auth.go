@@ -45,7 +45,22 @@ type issuer struct {
 // Auth validates bearer tokens against one or more OIDC issuers.
 type Auth struct {
 	issuers []*issuer
+	// trustRelaySub accepts the enclave session-relay's X-Privasys-Sub
+	// header as the authenticated identity. The relay sets it only for
+	// EncAuth-vouched (wallet-signed) sealed sessions and strips any
+	// inbound value on every other path, so inside an enclave whose only
+	// ingress is the relay it is as strong as the voucher chain — and the
+	// browser bearer never has to travel at all. Enable ONLY when this
+	// service is exclusively reachable through the relay (TRUST_RELAY_SUB).
+	trustRelaySub bool
 }
+
+// relaySubHeader is the relay-asserted identity header (see enclave-os
+// sessionrelay). Never trusted unless trustRelaySub is enabled.
+const relaySubHeader = "X-Privasys-Sub"
+
+// SetTrustRelaySub toggles acceptance of the relay-injected identity.
+func (a *Auth) SetTrustRelaySub(v bool) { a.trustRelaySub = v }
 
 type discovery struct {
 	JWKSURI string `json:"jwks_uri"`
@@ -94,9 +109,20 @@ func (a *Auth) Close() {
 	}
 }
 
-// Middleware verifies the Bearer token and stores the User in the context.
+// Middleware authenticates the request and stores the User in the context.
+// Two accepted identities, in order:
+//  1. the session relay's X-Privasys-Sub (wallet-vouched sealed session),
+//     when trustRelaySub is enabled;
+//  2. a Bearer JWT from the configured OIDC issuer(s).
 func (a *Auth) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if a.trustRelaySub {
+			if sub := strings.TrimSpace(r.Header.Get(relaySubHeader)); sub != "" {
+				u := &User{Sub: sub}
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userKey, u)))
+				return
+			}
+		}
 		bearer := r.Header.Get("Authorization")
 		if !strings.HasPrefix(bearer, "Bearer ") {
 			writeErr(w, http.StatusUnauthorized, "missing Bearer token")
