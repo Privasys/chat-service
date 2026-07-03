@@ -141,6 +141,11 @@ func (s *Store) Insert(ctx context.Context, t *UserTool) (*UserTool, error) {
 	if t.Scope == "" {
 		t.Scope = "user"
 	}
+	// auth_scopes is NOT NULL; a nil slice marshals to SQL NULL and the
+	// insert fails 23502 (tools added without scopes — the common case).
+	if t.AuthScopes == nil {
+		t.AuthScopes = []string{}
+	}
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO user_tools (`+cols+`)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17, now(), now())
